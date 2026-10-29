@@ -1,0 +1,22 @@
+# Environment & Secrets (NEVER COMMIT)
+.env
+*.env
+
+# Python Virtual Environment
+.venv/
+venv/
+env/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# OS / Editor junk
+.DS_Store
+.vscode/
