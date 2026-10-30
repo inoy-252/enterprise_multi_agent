@@ -20,3 +20,4 @@ __pycache__/
 # OS / Editor junk
 .DS_Store
 .vscode/
+Chunk_*.md
