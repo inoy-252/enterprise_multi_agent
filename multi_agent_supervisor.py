@@ -7,7 +7,7 @@ Phase 1: Defining Specialist Workers and Domain-Isolated Tools
 from typing import Literal
 
 from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, START, MessagesState, StateGraph
@@ -204,12 +204,35 @@ def supervisor_node(state: EnterpriseState) -> dict:
     return {"next": next_step}
 
 
+SYNTHESIZER_PROMPT = (
+    "You are the Executive Enterprise Concierge.\n"
+    "Your specialist workers (Travel, Compliance/Policy, and Finance) have completed their tasks.\n"
+    "Carefully review the entire dialogue history and synthesize a cohesive, professional "
+    "executive briefing for the user.\n\n"
+    "Formatting Requirements:\n"
+    "1. Start with an executive summary paragraph.\n"
+    "2. Provide clear sections for Destination Logistics, Compliance & Policy, and Financial Audit.\n"
+    "3. Conclude with actionable next steps.\n"
+    "4. Ground all numbers strictly in the reports provided by the specialist workers. Do NOT invent new figures."
+)
+
+
+def synthesizer_node(state: EnterpriseState) -> dict:
+    """Consolidates findings from all specialist workers into a unified final briefing."""
+    messages = [SystemMessage(content=SYNTHESIZER_PROMPT)] + state["messages"]
+    response = llm.invoke(messages)
+    return {
+        "messages": [AIMessage(content=response.content, name="executive_briefing")]
+    }
+
+
 builder = StateGraph(EnterpriseState)
 
 builder.add_node("supervisor", supervisor_node)
 builder.add_node("travel_worker", travel_node)
 builder.add_node("finance_worker", finance_node)
 builder.add_node("policy_worker", policy_node)
+builder.add_node("synthesizer", synthesizer_node)
 
 builder.add_edge(START, "supervisor")
 
@@ -220,14 +243,14 @@ builder.add_conditional_edges(
         "travel_worker": "travel_worker",
         "finance_worker": "finance_worker",
         "policy_worker": "policy_worker",
-        "FINISH": END,
+        "FINISH": "synthesizer",
     },
 )
 
 builder.add_edge("travel_worker", "supervisor")
 builder.add_edge("finance_worker", "supervisor")
 builder.add_edge("policy_worker", "supervisor")
-
+builder.add_edge("synthesizer", END)
 graph = builder.compile()
 
 
@@ -259,14 +282,16 @@ if __name__ == "__main__":
     for step_chunk in graph.stream(initial_state, stream_mode="updates"):
         for node_name, state_update in step_chunk.items():
             print(f"\n[ACTIVE NODE: {node_name.upper()}]")
+
             if node_name == "supervisor":
-                print(
-                    f"Supervisor Decision: Next worker -> {state_update.get('next')}"
-                )
+                print(f"Supervisor Decision: Next worker -> {state_update.get('next')}")
+            elif node_name == "synthesizer":
+                last_msg = state_update["messages"][-1]
+                clean_text = get_clean_text(last_msg.content)
+                print(f"\nFINAL EXECUTIVE BRIEFING:\n{clean_text}\n")
             else:
                 last_msg = state_update["messages"][-1]
                 clean_text = get_clean_text(last_msg.content)
                 print(f"Worker Output ({last_msg.name}):\n{clean_text}")
-    print("\n" + "=" * 70)
     print("MULTI-AGENT ORCHESTRATION COMPLETED SUCCESSFULLY!")
     print("=" * 70)
