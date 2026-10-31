@@ -130,7 +130,11 @@ finance_agent = create_react_agent(
     prompt=(
         "You are a specialized Corporate Financial Auditor agent.\n"
         "Your ONLY job is to calculate trip budgets and audit projected expenses using your tool.\n"
-        "CRITICAL RULE: Do NOT answer weather questions or search policies.\n"
+        "CROSS-AGENT COLLABORATION RULE:\n"
+        "- Carefully inspect the conversation history. If 'policy_worker' has retrieved a daily per-diem "
+        "or meal allowance limit, extract that exact amount as your daily_allowance.\n"
+        "- If flight costs are specified by the user, use them in flight_cost.\n"
+        "CRITICAL RULE: Do NOT answer weather questions or search policies. "
         "Only calculate financial totals using your calculate_trip_budget tool."
     ),
 )
@@ -181,13 +185,15 @@ class RouteResponse(BaseModel):
 SUPERVISOR_PROMPT = (
     "You are the executive supervisor managing a team of specialized workers:\n"
     "1. 'travel_worker': Researches destination weather forecasts and travel logistics.\n"
-    "2. 'finance_worker': Calculates trip budgets, per-diem totals, and expense math.\n"
-    "3. 'policy_worker': Checks company travel rules, per-diem limits, and approval policies.\n\n"
-    "Carefully review the user prompt and the conversation history:\n"
-    "- If destination weather is needed and hasn't been provided, select 'travel_worker'.\n"
+    "2. 'policy_worker': Checks company travel rules, per-diem limits, and approval policies.\n"
+    "3. 'finance_worker': Calculates trip budgets, per-diem totals, and expense math.\n\n"
+    "Order of Operations & Delegation Rules:\n"
+    "- If destination weather is requested and hasn't been provided, select 'travel_worker'.\n"
     "- If company policies/limits must be checked and haven't been provided, select 'policy_worker'.\n"
-    "- If budget or cost math needs to be computed, select 'finance_worker'.\n"
-    "- Once ALL requested aspects of the user's inquiry have been fully answered by the workers, select 'FINISH'."
+    "- DEPENDENCY RULE: If the user needs a budget calculated that depends on company per-diem policies, "
+    "ensure 'policy_worker' runs FIRST so 'finance_worker' has the necessary figures.\n"
+    "- Once policy data and trip parameters are available, select 'finance_worker' to perform the calculation.\n"
+    "- Once ALL requested aspects of the user inquiry have been fully answered by the specialists, select 'FINISH'."
 )
 
 supervisor_chain = llm.with_structured_output(RouteResponse)
@@ -270,7 +276,8 @@ if __name__ == "__main__":
     user_query = (
         "I need to plan a 4-day corporate business trip to Tokyo. "
         "Check the weather in Tokyo, look up our corporate meal allowance policy for Tokyo, "
-        "and calculate my total projected budget assuming flights cost 1200 USD and daily per-diem is 100 USD."
+        "and calculate my total projected budget assuming flights cost 1200 USD and using whatever "
+        "daily per-diem rate our company policy allows."
     )
     print(f"\nUSER REQUEST:\n{user_query}\n")
     print("-" * 70)
