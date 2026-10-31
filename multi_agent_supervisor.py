@@ -4,12 +4,14 @@ Architecture: The Supervisor-Worker Pattern
 Phase 1: Defining Specialist Workers and Domain-Isolated Tools
 """
 
+import sqlite3
 from typing import Literal
 
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel
@@ -257,7 +259,11 @@ builder.add_edge("travel_worker", "supervisor")
 builder.add_edge("finance_worker", "supervisor")
 builder.add_edge("policy_worker", "supervisor")
 builder.add_edge("synthesizer", END)
-graph = builder.compile()
+
+DB_PATH = "multi_agent_memory.db"
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+checkpointer = SqliteSaver(conn)
+graph = builder.compile(checkpointer=checkpointer)
 
 
 def get_clean_text(content) -> str:
@@ -271,34 +277,58 @@ def get_clean_text(content) -> str:
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("ENTERPRISE MULTI-AGENT COLLABORATION: LIVE ORCHESTRATION")
+    print("ENTERPRISE MULTI-AGENT COLLABORATION: MULTI-TURN PERSISTENCE")
     print("=" * 70)
-    user_query = (
+
+    session_config = {"configurable": {"thread_id": "exec-trip-tokyo-101"}}
+
+    def stream_turn(prompt: str):
+        """Helper to run conversation turn and stream active node handoffs."""
+        print(f"\nUSER REQUEST:\n{prompt}\n")
+        print("-" * 70)
+
+        turn_state: EnterpriseState = {
+            "messages": [HumanMessage(content=prompt)],
+            "next": "",
+        }
+
+        for step_chunk in graph.stream(
+            turn_state, config=session_config, stream_mode="updates"
+        ):
+            for node_name, state_update in step_chunk.items():
+                print(f"\n[ACTIVE NODE: {node_name.upper()}]")
+                if node_name == "supervisor":
+                    print(
+                        f"Supervisor Decision: Next worker -> {state_update.get('next')}"
+                    )
+                elif node_name == "synthesizer":
+                    last_msg = state_update["messages"][-1]
+                    clean_text = get_clean_text(last_msg.content)
+                    print(f"\nFINAL EXECUTIVE BRIEFING:\n{clean_text}\n")
+                else:
+                    last_msg = state_update["messages"][-1]
+                    clean_text = get_clean_text(last_msg.content)
+                    print(f"Worker Output ({last_msg.name}):\n{clean_text}")
+
+    print("\n>>> EXECUTING TURN 1 (Initial Planning) <<<")
+    turn_1_query = (
         "I need to plan a 4-day corporate business trip to Tokyo. "
         "Check the weather in Tokyo, look up our corporate meal allowance policy for Tokyo, "
         "and calculate my total projected budget assuming flights cost 1200 USD and using whatever "
         "daily per-diem rate our company policy allows."
     )
-    print(f"\nUSER REQUEST:\n{user_query}\n")
-    print("-" * 70)
-    initial_state: EnterpriseState = {
-        "messages": [HumanMessage(content=user_query)],
-        "next": "",
-    }
 
-    for step_chunk in graph.stream(initial_state, stream_mode="updates"):
-        for node_name, state_update in step_chunk.items():
-            print(f"\n[ACTIVE NODE: {node_name.upper()}]")
+    stream_turn(turn_1_query)
 
-            if node_name == "supervisor":
-                print(f"Supervisor Decision: Next worker -> {state_update.get('next')}")
-            elif node_name == "synthesizer":
-                last_msg = state_update["messages"][-1]
-                clean_text = get_clean_text(last_msg.content)
-                print(f"\nFINAL EXECUTIVE BRIEFING:\n{clean_text}\n")
-            else:
-                last_msg = state_update["messages"][-1]
-                clean_text = get_clean_text(last_msg.content)
-                print(f"Worker Output ({last_msg.name}):\n{clean_text}")
-    print("MULTI-AGENT ORCHESTRATION COMPLETED SUCCESSFULLY!")
+    print("\n" + "=" * 70)
+    print(" >>> EXECUTING TURN 2 (Delta Modification via Checkpoint Memory) <<<")
+    print("=" * 70)
+    turn_2_query = (
+        "Good news! The conference got extended. I will be in Tokyo for 7 days instead of 4 days. "
+        "Please recalculate my total budget."
+    )
+    stream_turn(turn_2_query)
+
+    print("\n" + "=" * 70)
+    print(" MULTI-TURN PERSISTENT COLLABORATION COMPLETED SUCCESSFULLY!")
     print("=" * 70)
