@@ -8,7 +8,12 @@ import sqlite3
 from typing import Literal
 
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    trim_messages,
+)
 from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -104,6 +109,21 @@ def search_company_policy(query: str) -> str:
     return "No matching corporate policy found for this query."
 
 
+def get_trimmed_history(messages: list) -> list:
+    """Retains system prompt and caps conversation history to the last 4 turns."""
+    return list(
+        trim_messages(
+            messages,
+            max_tokens=4,
+            token_counter=len,
+            strategy="last",
+            start_on="human",
+            include_system=True,
+            allow_partial=False,
+        )
+    )
+
+
 travel_agent = create_react_agent(
     llm,
     tools=[get_current_weather],
@@ -119,7 +139,8 @@ travel_agent = create_react_agent(
 
 def travel_node(state: MessagesState) -> dict:
     """Executes the travel agent and returns its findings tagged with its name."""
-    result = travel_agent.invoke(state)
+    trimmed_state = {"messages": get_trimmed_history(state["messages"])}
+    result = travel_agent.invoke(trimmed_state)
     last_message = result["messages"][-1]
     return {
         "messages": [HumanMessage(content=last_message.content, name="travel_worker")]
@@ -144,7 +165,8 @@ finance_agent = create_react_agent(
 
 def finance_node(state: MessagesState) -> dict:
     """Executes the finance agent and returns its findings tagged with its name."""
-    result = finance_agent.invoke(state)
+    trimmed_state = {"messages": get_trimmed_history(state["messages"])}
+    result = finance_agent.invoke(trimmed_state)
     last_message = result["messages"][-1]
     return {
         "messages": [HumanMessage(content=last_message.content, name="finance_worker")]
@@ -159,13 +181,16 @@ policy_agent = create_react_agent(
         "Your ONLY job is to verify company travel guidelines and per-diem caps using your tool.\n"
         "CRITICAL RULE: Do NOT answer weather questions and do NOT calculate total trip budgets.\n"
         "Only look up corporate policies using search_company_policy."
+        "Do NOT write an executive summary or next steps. "
+        "Report ONLY the raw financial audit figures (flights, per-diem days, and grand total)."
     ),
 )
 
 
 def policy_node(state: MessagesState) -> dict:
     """Executes the policy agent and returns its findings tagged with its name."""
-    result = policy_agent.invoke(state)
+    trimmed_state = {"messages": get_trimmed_history(state["messages"])}
+    result = policy_agent.invoke(trimmed_state)
     last_message = result["messages"][-1]
     return {
         "messages": [HumanMessage(content=last_message.content, name="policy_worker")]
@@ -176,6 +201,7 @@ class EnterpriseState(MessagesState):
     """Global multi-agent state tracking both message history and active routing."""
 
     next: str
+    trip_profile: dict
 
 
 class RouteResponse(BaseModel):
@@ -203,8 +229,18 @@ supervisor_chain = llm.with_structured_output(RouteResponse)
 
 def supervisor_node(state: EnterpriseState) -> dict:
     """Evaluates conversation state and chooses the next worker or FINISH."""
-    messages = [SystemMessage(content=SUPERVISOR_PROMPT)] + state["messages"]
+    trimmed = get_trimmed_history(state["messages"])
+
+    profile = state.get("trip_profile", {})
+
+    profile_context = (
+        f"\n\nCURRENT TRIP PROFILE (VERIFIED FACTS):\n{profile}" if profile else ""
+    )
+    system_instruction = SystemMessage(content=SUPERVISOR_PROMPT + profile_context)
+
+    messages = [system_instruction] + trimmed
     decision = supervisor_chain.invoke(messages)
+
     if isinstance(decision, dict):
         next_step = decision.get("next", "FINISH")
     else:
@@ -227,7 +263,11 @@ SYNTHESIZER_PROMPT = (
 
 def synthesizer_node(state: EnterpriseState) -> dict:
     """Consolidates findings from all specialist workers into a unified final briefing."""
-    messages = [SystemMessage(content=SYNTHESIZER_PROMPT)] + state["messages"]
+    trimmed = get_trimmed_history(state["messages"])
+    profile = state.get("trip_profile", {})
+    profile_context = f"\n\nVERIFIED TRIP PROFILE:\n{profile}" if profile else ""
+
+    messages = [SystemMessage(content=SYNTHESIZER_PROMPT + profile_context)] + trimmed
     response = llm.invoke(messages)
     return {
         "messages": [AIMessage(content=response.content, name="executive_briefing")]
@@ -290,6 +330,7 @@ if __name__ == "__main__":
         turn_state: EnterpriseState = {
             "messages": [HumanMessage(content=prompt)],
             "next": "",
+            "trip_profile": {},
         }
 
         for step_chunk in graph.stream(
