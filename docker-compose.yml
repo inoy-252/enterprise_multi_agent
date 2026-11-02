@@ -1,0 +1,14 @@
+services:
+  agent-api:
+    build: .
+    container_name: enterprise_multi_agent_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # Mount host directory for persistent SQLite checkpoint & cache databases
+      - data-volume:/app/data
+    restart: unless-stopped
+volumes:
+  data-volume:

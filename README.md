@@ -93,6 +93,12 @@ To eliminate redundant multi-agent pipeline executions on semantically equivalen
 - Evaluates Cosine Similarity across historical vectors against a strict confidence threshold (default: 0.90).
 - Semantically rephrased requests bypass the multi-agent graph entirely, serving sub-10ms responses at zero marginal LLM token cost.
 
+### Production HTTP Microservice (`api.py`)
+The system exposes a production-ready asynchronous web service via FastAPI:
+- `POST /chat`: Evaluates semantic cache; if miss, invokes multi-agent graph and caches final executive synthesis.
+- `GET /cache/stats`: Returns real-time cache analytics (total entries, hits, and similarity threshold).
+- `GET /health`: Healthcheck endpoint for container orchestrators and load balancers.
+
 ---
 
 ## 4. Repository Structure
@@ -101,6 +107,10 @@ To eliminate redundant multi-agent pipeline executions on semantically equivalen
 enterprise_multi_agent/
 ├── multi_agent_supervisor.py   # Multi-agent state machine, supervisor router, and synthesizer
 ├── semantic_cache.py           # Embedding-based semantic caching layer with SQLite persistence
+├── api.py                      # FastAPI microservice serving the multi-agent pipeline
+├── Dockerfile                  # Production container definition
+├── docker-compose.yml          # Container orchestration with persistent volume mounts
+├── .dockerignore               # Docker build hygiene
 ├── requirements.txt            # Pinned dependencies
 ├── .gitignore                  # Git hygiene and secret protection
 └── README.md                   # System documentation
@@ -111,10 +121,10 @@ enterprise_multi_agent/
 ## 5. Quickstart
 
 ### Prerequisites
-- Python 3.10+
+- Python 3.10+ or Docker
 - Google Gemini API Key
 
-### Installation
+### Option A: Running with Docker (Recommended)
 
 1. Clone the repository:
 ```bash
@@ -122,26 +132,38 @@ git clone https://github.com/inoy-252/enterprise_multi_agent.git
 cd enterprise_multi_agent
 ```
 
-2. Create and activate a virtual environment:
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Configure environment variables:
+2. Configure environment variables:
 Create a `.env` file in the project root:
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-### Execution
+3. Build and run the container:
+```bash
+docker compose up --build
+```
 
-Run the multi-turn persistent orchestration demonstration:
+The service will be live at `http://localhost:8000`. Interactive documentation is available at `http://localhost:8000/docs`.
+
+### Option B: Running Locally
+
+1. Create and activate a virtual environment:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+3. Run the API microservice:
+```bash
+python api.py
+```
+
+Or execute the CLI multi-turn persistence test:
 ```bash
 python multi_agent_supervisor.py
 ```
