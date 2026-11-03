@@ -108,6 +108,7 @@ enterprise_multi_agent/
 ├── multi_agent_supervisor.py   # Multi-agent state machine, supervisor router, and synthesizer
 ├── semantic_cache.py           # Embedding-based semantic caching layer with SQLite persistence
 ├── api.py                      # FastAPI microservice serving the multi-agent pipeline
+├── ui.py                       # Interactive Streamlit dashboard with live telemetry & chat
 ├── Dockerfile                  # Production container definition
 ├── docker-compose.yml          # Container orchestration with persistent volume mounts
 ├── .dockerignore               # Docker build hygiene
@@ -161,6 +162,11 @@ pip install -r requirements.txt
 3. Run the API microservice:
 ```bash
 python api.py
+```
+
+4. Or launch the interactive Streamlit dashboard:
+```bash
+streamlit run ui.py
 ```
 
 Or execute the CLI multi-turn persistence test:
