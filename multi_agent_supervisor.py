@@ -216,6 +216,7 @@ SUPERVISOR_PROMPT = (
     "2. 'policy_worker': Checks company travel rules, per-diem limits, and approval policies.\n"
     "3. 'finance_worker': Calculates trip budgets, per-diem totals, and expense math.\n\n"
     "Order of Operations & Delegation Rules:\n"
+    "- If the user's message is a greeting, introduction, or general conversation without a specific trip request, select 'FINISH' so the concierge can welcome them.\n"
     "- If destination weather is requested and hasn't been provided, select 'travel_worker'.\n"
     "- If company policies/limits must be checked and haven't been provided, select 'policy_worker'.\n"
     "- DEPENDENCY RULE: If the user needs a budget calculated that depends on company per-diem policies, "
@@ -250,14 +251,17 @@ def supervisor_node(state: EnterpriseState) -> dict:
 
 SYNTHESIZER_PROMPT = (
     "You are the Executive Enterprise Concierge.\n"
-    "Your specialist workers (Travel, Compliance/Policy, and Finance) have completed their tasks.\n"
-    "Carefully review the entire dialogue history and synthesize a cohesive, professional "
-    "executive briefing for the user.\n\n"
-    "Formatting Requirements:\n"
+    "Carefully review the entire dialogue history to determine the appropriate response:\n\n"
+    "CRITICAL CONVERSATIONAL GUARDRAIL:\n"
+    "- If the user's message is a greeting, introduction (e.g., 'hi', 'hello', 'my name is...'), or general remark, "
+    "or if no corporate travel request has been made yet, DO NOT format or invent a travel briefing.\n"
+    "- Simply greet the user politely by name (if provided), introduce yourself as the Executive Enterprise Concierge, "
+    "and ask how you can help plan their business trip (e.g., destination, dates, budget, or policy checks).\n\n"
+    "TRIP SYNTHESIS REQUIREMENTS (ONLY when an actual corporate travel request was planned by specialist workers):\n"
     "1. Start with an executive summary paragraph.\n"
     "2. Provide clear sections for Destination Logistics, Compliance & Policy, and Financial Audit.\n"
     "3. Conclude with actionable next steps.\n"
-    "4. Ground all numbers strictly in the reports provided by the specialist workers. Do NOT invent new figures."
+    "4. Ground all numbers strictly in the reports provided by the specialist workers. Do NOT invent new figures or flights."
 )
 
 
