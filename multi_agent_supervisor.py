@@ -23,7 +23,7 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash-lite")
+llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash")
 
 
 @tool
@@ -110,11 +110,11 @@ def search_company_policy(query: str) -> str:
 
 
 def get_trimmed_history(messages: list) -> list:
-    """Retains system prompt and caps conversation history to the last 4 turns."""
+    """Retains system prompt and caps conversation history to the last 4 multi-agent turns."""
     return list(
         trim_messages(
             messages,
-            max_tokens=4,
+            max_tokens=16,
             token_counter=len,
             strategy="last",
             start_on="human",
@@ -180,9 +180,7 @@ policy_agent = create_react_agent(
         "You are a specialized Corporate Travel Compliance Guard.\n"
         "Your ONLY job is to verify company travel guidelines and per-diem caps using your tool.\n"
         "CRITICAL RULE: Do NOT answer weather questions and do NOT calculate total trip budgets.\n"
-        "Only look up corporate policies using search_company_policy."
-        "Do NOT write an executive summary or next steps. "
-        "Report ONLY the raw financial audit figures (flights, per-diem days, and grand total)."
+        "Only look up corporate policies using search_company_policy and report the verified policy rules."
     ),
 )
 
@@ -216,13 +214,11 @@ SUPERVISOR_PROMPT = (
     "2. 'policy_worker': Checks company travel rules, per-diem limits, and approval policies.\n"
     "3. 'finance_worker': Calculates trip budgets, per-diem totals, and expense math.\n\n"
     "Order of Operations & Delegation Rules:\n"
-    "- If the user's message is a greeting, introduction, or general conversation without a specific trip request, select 'FINISH' so the concierge can welcome them.\n"
-    "- If destination weather is requested and hasn't been provided, select 'travel_worker'.\n"
-    "- If company policies/limits must be checked and haven't been provided, select 'policy_worker'.\n"
-    "- DEPENDENCY RULE: If the user needs a budget calculated that depends on company per-diem policies, "
-    "ensure 'policy_worker' runs FIRST so 'finance_worker' has the necessary figures.\n"
-    "- Once policy data and trip parameters are available, select 'finance_worker' to perform the calculation.\n"
-    "- Once ALL requested aspects of the user inquiry have been fully answered by the specialists, select 'FINISH'."
+    "- If the user's message is purely a greeting or introduction without any trip details or requests (e.g., 'hi', 'hello', 'my name is...'), select 'FINISH' so the concierge can welcome them.\n"
+    "- If destination weather is requested/relevant and has not been reported by 'travel_worker', select 'travel_worker'.\n"
+    "- If trip duration, meals, or policy rules are involved and have not been retrieved by 'policy_worker', select 'policy_worker'.\n"
+    "- If flight costs, trip duration, or budget calculations are involved and have not been calculated by 'finance_worker', ensure 'policy_worker' has run first, then select 'finance_worker'.\n"
+    "- Once ALL necessary specialist findings have been collected for the user's request, select 'FINISH'."
 )
 
 supervisor_chain = llm.with_structured_output(RouteResponse)
@@ -251,17 +247,20 @@ def supervisor_node(state: EnterpriseState) -> dict:
 
 SYNTHESIZER_PROMPT = (
     "You are the Executive Enterprise Concierge.\n"
-    "Carefully review the entire dialogue history to determine the appropriate response:\n\n"
-    "CRITICAL CONVERSATIONAL GUARDRAIL:\n"
-    "- If the user's message is a greeting, introduction (e.g., 'hi', 'hello', 'my name is...'), or general remark, "
-    "or if no corporate travel request has been made yet, DO NOT format or invent a travel briefing.\n"
-    "- Simply greet the user politely by name (if provided), introduce yourself as the Executive Enterprise Concierge, "
-    "and ask how you can help plan their business trip (e.g., destination, dates, budget, or policy checks).\n\n"
-    "TRIP SYNTHESIS REQUIREMENTS (ONLY when an actual corporate travel request was planned by specialist workers):\n"
-    "1. Start with an executive summary paragraph.\n"
-    "2. Provide clear sections for Destination Logistics, Compliance & Policy, and Financial Audit.\n"
-    "3. Conclude with actionable next steps.\n"
-    "4. Ground all numbers strictly in the reports provided by the specialist workers. Do NOT invent new figures or flights."
+    "Your role is to respond to the user based on the conversation history and specialist worker findings.\n\n"
+    "DECISION LOGIC:\n"
+    "Case A: Pure Greeting / Social Introduction\n"
+    "- If the user only said hello or introduced themselves (no travel destination, dates, weather, or budget mentioned), "
+    "greet them politely by name (if given), introduce yourself as the Executive Enterprise Concierge, and offer to help plan their corporate trip.\n\n"
+    "Case B: Travel Request / Inquiries\n"
+    "- If the user asked about destination, weather, budget, flights, or policies, synthesize the specialist findings into a crisp, professional Executive Briefing.\n"
+    "- Structure your briefing clearly:\n"
+    "  1. Executive Summary: High-level overview of the trip and objectives.\n"
+    "  2. Destination Logistics: Weather forecast and conditions (from travel_worker).\n"
+    "  3. Policy & Compliance: Meal allowance / per-diem caps (from policy_worker).\n"
+    "  4. Financial Audit: Itemized calculation of flights, per-diem total, and grand total (from finance_worker).\n"
+    "  5. Actionable Next Steps: Clear corporate travel recommendations.\n"
+    "- STRICT ACCURACY: Ground every number, temperature, and policy strictly in the reports provided by the specialist workers. Do NOT invent new flights or figures."
 )
 
 
