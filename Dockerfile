@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application source code
 COPY multi_agent_supervisor.py .
 COPY semantic_cache.py .
+COPY qdrant_manager.py .
 COPY api.py .
 # Expose FastAPI default port
 EXPOSE 8000
