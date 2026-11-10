@@ -7,3 +7,5 @@ pydantic
 fastapi
 uvicorn
 streamlit
+qdrant-client
+google-genai

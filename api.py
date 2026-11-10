@@ -5,7 +5,7 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from multi_agent_supervisor import EnterpriseState, HumanMessage, get_clean_text, graph
-from semantic_cache import SemanticCache
+from qdrant_manager import QdrantSemanticCache
 
 app = FastAPI(
     title="Enterprise Multi-Agent Collaboration API",
@@ -13,7 +13,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
-cache = SemanticCache(db_path="semantic_cache.db", threshold=0.90)
+cache = QdrantSemanticCache(collection_name="enterprise_cache", threshold=0.85)
 
 
 class ChatRequest(BaseModel):

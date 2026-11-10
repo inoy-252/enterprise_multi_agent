@@ -17,6 +17,7 @@ __pycache__/
 *.db*
 *.sqlite
 *.sqlite3
+qdrant_storage/
 
 # OS / Editor junk
 .DS_Store

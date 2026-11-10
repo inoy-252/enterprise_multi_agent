@@ -5,14 +5,14 @@ import streamlit as st
 from langchain_core.runnables import RunnableConfig
 
 from multi_agent_supervisor import EnterpriseState, HumanMessage, get_clean_text, graph
-from semantic_cache import SemanticCache
+from qdrant_manager import QdrantSemanticCache
 
 st.set_page_config(page_title="Enterprise Multi-Agent Swarm", layout="wide")
 
 
 @st.cache_resource
 def load_cache():
-    return SemanticCache(db_path="semantic_cache.db", threshold=0.90)
+    return QdrantSemanticCache(collection_name="enterprise_cache", threshold=0.85)
 
 
 cache = load_cache()
@@ -25,15 +25,17 @@ if "thread_id" not in st.session_state:
 
 with st.sidebar:
     st.header("System Telemetry")
-    st.subheader("Streamlit Cache")
+    st.subheader("Qdrant Semantic Cache")
     stats = cache.get_stats()
 
     col1, col2 = st.columns(2)
     with col1:
-        st.metric("Cached Queries", stats["total_entries"])
+        st.metric("Cached Vectors", stats.get("total_points", 0 ))
     with col2:
-        st.metric("Cache Hits", stats["total_hits"])
-    st.caption(f"Similarity Threshold: **{stats['similarity_threshold'] * 100:.0f}%**")
+        st.metric("Vector Space",f"HNSW ({stats.get('vector_size', 768)}D)")
+    st.caption(
+        f"Engine: **Qdrant (Disk)** · Status: **{stats.get('status', 'healthy')}** · Threshold: **{stats.get('similarity_threshold', 0.85) * 100:.0f}%**"
+    )
     st.markdown("---")
 
     st.subheader("Conversation State")
@@ -91,7 +93,7 @@ if prompt := st.chat_input(
             latency = round(time.time() - start_time, 4)
             st.markdown(hit["response"])
             st.success(
-                f" **Semantic Cache Hit!** Intent match: **{hit['similarity'] * 100:.1f}%** · Served in **{latency}s** · **$0.00 Marginal Cost**"
+                f" **Qdrant Cache Hit!** Intent match: **{hit['similarity'] * 100:.1f}%** · Served via HNSW in **{latency}s** · **$0.00 Marginal Cost**"
             )
             st.session_state.messages.append(
                 {
