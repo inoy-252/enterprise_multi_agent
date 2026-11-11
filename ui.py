@@ -2,9 +2,16 @@ import time
 import uuid
 
 import streamlit as st
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 
-from multi_agent_supervisor import EnterpriseState, HumanMessage, get_clean_text, graph
+from multi_agent_supervisor import (
+    EnterpriseState,
+    HumanMessage,
+    get_clean_text,
+    graph,
+    is_new_thread,
+)
 from qdrant_manager import QdrantSemanticCache
 
 st.set_page_config(page_title="Enterprise Multi-Agent Swarm", layout="wide")
@@ -21,7 +28,7 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 if "thread_id" not in st.session_state:
-    st.session_state.thread_id = f"exex-{uuid.uuid4().hex[:6]}"
+    st.session_state.thread_id = f"exec-{uuid.uuid4().hex[:6]}"
 
 with st.sidebar:
     st.header("System Telemetry")
@@ -87,33 +94,51 @@ if prompt := st.chat_input(
         st.markdown(prompt)
     with st.chat_message("assistant"):
         start_time = time.time()
+        session_config: RunnableConfig = {
+            "configurable": {"thread_id": st.session_state.thread_id}
+        }
+        first_turn = is_new_thread(session_config)
 
-        hit = cache.lookup(prompt)
+
+        hit = cache.lookup(prompt) if first_turn else None
         if hit:
             latency = round(time.time() - start_time, 4)
+            score = hit.get("score", hit.get("similarity", 0))
+
+
+            graph.update_state(
+                session_config,
+                {
+                    "messages": [
+                        HumanMessage(content=prompt),
+                        AIMessage(content=hit["response"], name="executive_briefing"),
+                    ]
+                },
+                as_node="synthesizer",
+            )
             st.markdown(hit["response"])
             st.success(
-                f" **Qdrant Cache Hit!** Intent match: **{hit['similarity'] * 100:.1f}%** · Served via HNSW in **{latency}s** · **$0.00 Marginal Cost**"
+                f"**Qdrant Cache Hit!** Intent match: **{score * 100:.1f}%** · Served via HNSW in **{latency}s** · **$0.00 Marginal Cost**"
             )
             st.session_state.messages.append(
                 {
                     "role": "assistant",
                     "content": hit["response"],
                     "cached": True,
-                    "similarity": hit["similarity"],
+                    "similarity": score,
                     "latency": latency,
                 }
             )
             st.rerun()
-        session_config: RunnableConfig = {
-            "configurable": {"thread_id": st.session_state.thread_id}
-        }
+
         turn_state: EnterpriseState = {
             "messages": [HumanMessage(content=prompt)],
             "next": "",
             "trip_profile": {},
         }
         final_briefing = ""
+        workers_ran = set()
+
         with st.status("**Agent Swarm Collaborating...**", expanded=True) as status:
             try:
                 for step_chunk in graph.stream(
@@ -132,6 +157,7 @@ if prompt := st.chat_input(
                                 "**Synthesizer:** Compiling domain findings into executive briefing..."
                             )
                         else:
+                            workers_ran.add(node_name)
                             st.write(
                                 f"**{node_name}:** Executed assigned domain tools successfully."
                             )
@@ -146,9 +172,13 @@ if prompt := st.chat_input(
                     label="**Swarm Execution Failed**", state="error", expanded=True
                 )
                 st.error(f"Multi-Agent execution error: {e}")
+
         if final_briefing:
             st.markdown(final_briefing)
-            cache.store(prompt, final_briefing)
+
+            if first_turn and workers_ran:
+                cache.store(prompt, final_briefing)
+
             latency = round(time.time() - start_time, 2)
             st.caption(f"Full Multi-Agent swarm execution completed in {latency}s")
 
@@ -161,3 +191,5 @@ if prompt := st.chat_input(
                 }
             )
             st.rerun()
+
+

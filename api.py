@@ -1,10 +1,18 @@
 import time
 
 from fastapi import FastAPI, HTTPException
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from multi_agent_supervisor import EnterpriseState, HumanMessage, get_clean_text, graph
+from multi_agent_supervisor import (
+    WORKERS,
+    EnterpriseState,
+    HumanMessage,
+    get_clean_text,
+    graph,
+    is_new_thread,
+)
 from qdrant_manager import QdrantSemanticCache
 
 app = FastAPI(
@@ -51,34 +59,55 @@ def get_cache_stats():
 def chat_endpoint(request: ChatRequest):
     """
     Primary multi-agent conversation endpoint:
-    1. Checks semantic cache for >=90% intent match (instant return).
-    2. If cache miss, executes LangGraph multi-agent orchestration.
-    3. Caches final executive synthesis for future requests.
+    1. Checks semantic cache for first-turn intent match (instant return).
+    2. Rehydrates conversation state into SQLite on cache hit.
+    3. If cache miss, executes LangGraph multi-agent orchestration.
+    4. Caches factual responses for future requests.
     """
-    start_time = time.time()
 
-    hit = cache.lookup(request.message)
+    start_time = time.time()
+    session_config: RunnableConfig = {"configurable": {"thread_id": request.thread_id}}
+    first_turn = is_new_thread(session_config)
+
+    hit = cache.lookup(request.message) if first_turn else None
     if hit:
         latency = round(time.time() - start_time, 4)
+        score = hit.get("score", hit.get("similarity", 0))
+
+        graph.update_state(
+            session_config,
+            {
+                "messages": [
+                    HumanMessage(content=request.message),
+                    AIMessage(content=hit["response"], name="executive_briefing"),
+                ]
+            },
+            as_node="synthesizer",
+        )
         return ChatResponse(
             response=hit["response"],
             cached=True,
-            similarity=hit["similarity"],
-            matched_query=hit["query"],
+            similarity=score,
+            matched_query=hit.get("query"),
             latency_seconds=latency,
             thread_id=request.thread_id,
         )
-    session_config: RunnableConfig = {"configurable": {"thread_id": request.thread_id}}
+
     turn_state: EnterpriseState = {
         "messages": [HumanMessage(content=request.message)],
         "next": "",
         "trip_profile": {},
     }
     final_briefing = ""
+    workers_ran = set()
     try:
         for step_chunk in graph.stream(
             turn_state, config=session_config, stream_mode="updates"
         ):
+
+            for node_name in step_chunk.keys():
+                if node_name in WORKERS:
+                    workers_ran.add(node_name)
             if "synthesizer" in step_chunk:
                 last_msg = step_chunk["synthesizer"]["messages"][-1]
                 final_briefing = get_clean_text(last_msg.content)
@@ -89,11 +118,11 @@ def chat_endpoint(request: ChatRequest):
     if not final_briefing:
         raise HTTPException(
             status_code=500,
-            detail="Synthesiser failed to generate an executive report.",
+            detail="Synthesizer failed to generate an executive report.",
         )
 
-    cache.store(request.message, final_briefing)
-
+    if first_turn and workers_ran:
+        cache.store(request.message, final_briefing)
     latency = round(time.time() - start_time, 4)
     return ChatResponse(
         response=final_briefing,
@@ -103,7 +132,6 @@ def chat_endpoint(request: ChatRequest):
         latency_seconds=latency,
         thread_id=request.thread_id,
     )
-
 
 if __name__ == "__main__":
     import uvicorn

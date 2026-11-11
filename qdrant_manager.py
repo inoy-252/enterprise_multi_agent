@@ -52,7 +52,10 @@ class QdrantSemanticCache:
         response = self._genai_client.models.embed_content(
             model="gemini-embedding-001",
             contents=text,
-            config={"output_dimensionality": self.vector_size},
+            config={
+                "output_dimensionality": self.vector_size,
+                "task_type": "SEMANTIC_SIMILARITY",
+            },
         )
         if not response.embeddings or not response.embeddings[0].values:
             raise ValueError("Gemini API failed to return embedding vectors.")
@@ -103,7 +106,9 @@ class QdrantSemanticCache:
             conditions: list[models.Condition] = [
                 models.FieldCondition(
                     key=k,
-                    match=models.MatchValue(value=v.strip().lower() if isinstance(v, str) else v),
+                    match=models.MatchValue(
+                        value=v.strip().lower() if isinstance(v, str) else v
+                    ),
                 )
                 for k, v in filter_metadata.items()
             ]
