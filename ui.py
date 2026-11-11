@@ -37,9 +37,9 @@ with st.sidebar:
 
     col1, col2 = st.columns(2)
     with col1:
-        st.metric("Cached Vectors", stats.get("total_points", 0 ))
+        st.metric("Cached Vectors", stats.get("total_points", 0))
     with col2:
-        st.metric("Vector Space",f"HNSW ({stats.get('vector_size', 768)}D)")
+        st.metric("Vector Space", f"HNSW ({stats.get('vector_size', 768)}D)")
     st.caption(
         f"Engine: **Qdrant (Disk)** · Status: **{stats.get('status', 'healthy')}** · Threshold: **{stats.get('similarity_threshold', 0.85) * 100:.0f}%**"
     )
@@ -99,12 +99,10 @@ if prompt := st.chat_input(
         }
         first_turn = is_new_thread(session_config)
 
-
-        hit = cache.lookup(prompt) if first_turn else None
+        hit = cache.lookup(prompt)
         if hit:
             latency = round(time.time() - start_time, 4)
             score = hit.get("score", hit.get("similarity", 0))
-
 
             graph.update_state(
                 session_config,
@@ -176,7 +174,7 @@ if prompt := st.chat_input(
         if final_briefing:
             st.markdown(final_briefing)
 
-            if first_turn and workers_ran:
+            if workers_ran:
                 cache.store(prompt, final_briefing)
 
             latency = round(time.time() - start_time, 2)
@@ -191,5 +189,3 @@ if prompt := st.chat_input(
                 }
             )
             st.rerun()
-
-

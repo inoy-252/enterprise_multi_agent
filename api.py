@@ -69,7 +69,7 @@ def chat_endpoint(request: ChatRequest):
     session_config: RunnableConfig = {"configurable": {"thread_id": request.thread_id}}
     first_turn = is_new_thread(session_config)
 
-    hit = cache.lookup(request.message) if first_turn else None
+    hit = cache.lookup(request.message)
     if hit:
         latency = round(time.time() - start_time, 4)
         score = hit.get("score", hit.get("similarity", 0))
@@ -104,7 +104,6 @@ def chat_endpoint(request: ChatRequest):
         for step_chunk in graph.stream(
             turn_state, config=session_config, stream_mode="updates"
         ):
-
             for node_name in step_chunk.keys():
                 if node_name in WORKERS:
                     workers_ran.add(node_name)
@@ -121,7 +120,7 @@ def chat_endpoint(request: ChatRequest):
             detail="Synthesizer failed to generate an executive report.",
         )
 
-    if first_turn and workers_ran:
+    if workers_ran:
         cache.store(request.message, final_briefing)
     latency = round(time.time() - start_time, 4)
     return ChatResponse(
@@ -132,6 +131,7 @@ def chat_endpoint(request: ChatRequest):
         latency_seconds=latency,
         thread_id=request.thread_id,
     )
+
 
 if __name__ == "__main__":
     import uvicorn

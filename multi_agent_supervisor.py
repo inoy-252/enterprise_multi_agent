@@ -24,7 +24,7 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash", max_retries=2, timeout=30)
+llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash-lite", max_retries=2, timeout=30)
 
 
 @tool
@@ -225,27 +225,25 @@ SUPERVISOR_PROMPT = (
 
 supervisor_chain = llm.with_structured_output(RouteResponse)
 
-WORKERS = {
-    "travel_worker",
-    "policy_worker",
-    "finance_worker"
-}
+WORKERS = {"travel_worker", "policy_worker", "finance_worker"}
+
 
 def workers_run_this_turn(messages: list) -> set:
     """Identifies specialist workers that have already reported since the user's latest message."""
     done = set()
-    for m in reversed(messages): 
+    for m in reversed(messages):
         if isinstance(m, HumanMessage) and m.name is None:
             break
         if getattr(m, "name", None) in WORKERS:
             done.add(m.name)
     return done
 
+
 def supervisor_node(state: EnterpriseState) -> dict:
     """Evaluates conversation state and chooses the next worker or FINISH."""
-    
+
     done = workers_run_this_turn(state["messages"])
-    
+
     trimmed = get_trimmed_history(state["messages"])
 
     profile = state.get("trip_profile", {})
@@ -254,9 +252,11 @@ def supervisor_node(state: EnterpriseState) -> dict:
         f"\n\nCURRENT TRIP PROFILE (VERIFIED FACTS):\n{profile}" if profile else ""
     )
     done_context = (
-        f"\n\nWorkers already run for this request: {sorted(done)}" if done else""
+        f"\n\nWorkers already run for this request: {sorted(done)}" if done else ""
     )
-    system_instruction = SystemMessage(content=SUPERVISOR_PROMPT + profile_context + done_context)
+    system_instruction = SystemMessage(
+        content=SUPERVISOR_PROMPT + profile_context + done_context
+    )
 
     messages = [system_instruction] + trimmed
     decision = supervisor_chain.invoke(messages)
@@ -265,8 +265,8 @@ def supervisor_node(state: EnterpriseState) -> dict:
         next_step = decision.get("next", "FINISH")
     else:
         next_step = getattr(decision, "next", "FINISH")
-        
-    if next_step in done: 
+
+    if next_step in done:
         next_step = "FINISH"
     return {"next": next_step}
 
@@ -334,6 +334,7 @@ conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 checkpointer = SqliteSaver(conn)
 graph = builder.compile(checkpointer=checkpointer)
 
+
 def is_new_thread(config: RunnableConfig) -> bool:
     """Checks if the conversation checkpoint is empty (i.e. Turn 1 of a new thread)."""
     state = graph.get_state(config)
@@ -354,7 +355,9 @@ if __name__ == "__main__":
     print("ENTERPRISE MULTI-AGENT COLLABORATION: MULTI-TURN PERSISTENCE")
     print("=" * 70)
 
-    session_config: RunnableConfig = {"configurable": {"thread_id": "exec-trip-tokyo-101"}}
+    session_config: RunnableConfig = {
+        "configurable": {"thread_id": "exec-trip-tokyo-101"}
+    }
 
     def stream_turn(prompt: str):
         """Helper to run conversation turn and stream active node handoffs."""
