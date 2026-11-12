@@ -1,3 +1,4 @@
+import re
 import time
 import uuid
 
@@ -13,6 +14,15 @@ from multi_agent_supervisor import (
     is_new_thread,
 )
 from qdrant_manager import QdrantSemanticCache
+
+
+def sanitize_for_cache(text: str) -> str:
+    """Strips conversational greetings (e.g. 'Hello Yasir,\n') so cached briefings are neutral."""
+    cleaned = re.sub(
+        r"^\s*(Hello|Hi|Hey|Dear)\b[^\n]*\n+", "", text, flags=re.IGNORECASE
+    )
+    return cleaned.strip()
+
 
 st.set_page_config(page_title="Enterprise Multi-Agent Swarm", layout="wide")
 
@@ -174,8 +184,9 @@ if prompt := st.chat_input(
         if final_briefing:
             st.markdown(final_briefing)
 
-            if workers_ran:
-                cache.store(prompt, final_briefing)
+            # Only cache corporate policy lookups (universal facts); sanitize any personal greeting prefix
+            if workers_ran == {"policy_worker"}:
+                cache.store(prompt, sanitize_for_cache(final_briefing))
 
             latency = round(time.time() - start_time, 2)
             st.caption(f"Full Multi-Agent swarm execution completed in {latency}s")

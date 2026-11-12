@@ -1,3 +1,4 @@
+import re
 import time
 
 from fastapi import FastAPI, HTTPException
@@ -14,6 +15,15 @@ from multi_agent_supervisor import (
     is_new_thread,
 )
 from qdrant_manager import QdrantSemanticCache
+
+
+def sanitize_for_cache(text: str) -> str:
+    """Strips conversational greetings (e.g. 'Hello Yasir,\n') so cached briefings are neutral."""
+    cleaned = re.sub(
+        r"^\s*(Hello|Hi|Hey|Dear)\b[^\n]*\n+", "", text, flags=re.IGNORECASE
+    )
+    return cleaned.strip()
+
 
 app = FastAPI(
     title="Enterprise Multi-Agent Collaboration API",
@@ -120,8 +130,9 @@ def chat_endpoint(request: ChatRequest):
             detail="Synthesizer failed to generate an executive report.",
         )
 
-    if workers_ran:
-        cache.store(request.message, final_briefing)
+    # Only cache corporate policy lookups (universal facts); sanitize any personal greeting prefix
+    if workers_ran == {"policy_worker"}:
+        cache.store(request.message, sanitize_for_cache(final_briefing))
     latency = round(time.time() - start_time, 4)
     return ChatResponse(
         response=final_briefing,
